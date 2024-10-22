@@ -14,17 +14,11 @@ def on_select(eclick, erelease): # Callback function for ROI selection
     roi = [int(y1), int(x1), int(y2), int(x2)]
     print(roi)
 
-def update(val):
-    global mask
 
-    maskReversed = (ref < val[0]) | (ref > val[1])
-    ax.imshow(maskReversed, cmap = 'hot', alpha = 0.3)
-    mask = (ref >= val[0]) & (ref <= val[1])
-    mask = mask.astype(int)
-    return val
-
-
-
+def read(filename):
+    with rawpy.imread(filename) as raw:
+        return raw.raw_image.copy()
+    
 def convolve2d_cust(x,y):
 #    h,w = x.shape
 #    x = np.pad(x,((h // 2, h // 2),(w // 2, w // 2)), "constant", constant_values = 0)
@@ -35,7 +29,49 @@ def convolve2d_cust(x,y):
 
     return np.real(np.fft.fftshift(np.fft.ifft2(np.multiply(im1, im2))))
 
-global roi 
+def getROI(filelist):
+    im1 = read(filelist[0])
+    im2 = read(filelist[-1])
+
+    toPlot = (im1 + im2) / 2
+    fig, ax = plt.subplots()
+    ax.imshow(toPlot, cmap = 'gray')
+
+    toggle_selector = RectangleSelector(ax, on_select,
+                                        useblit=True,
+                                        button=[1],  # Only left click allowed
+                                        minspanx=5, minspany=5,
+                                        spancoords='pixels',
+                                        interactive=True)
+    
+    plt.show()
+
+def getMask(ref):
+    global mask
+
+    def update(val):
+        global mask
+
+        mask = (ref >= val[0]) & (ref <= val[1])
+        mask = mask.astype(int)
+
+        maskPlot.set_data((mask == 0))
+        fig.canvas.draw_idle()
+
+    fig, ax = plt.subplots()
+    ax.imshow(ref, cmap = 'gray')
+    slider_ax = fig.add_axes([0.20, 0, 0.60, 0.03])
+    slider = RangeSlider(slider_ax, 'Threshold', ref.min(), ref.max())
+    reversedMask = (ref < slider.val[0]) | (ref > slider.val[1])
+    mask = (reversedMask == False).astype(int)
+    maskPlot = ax.imshow(reversedMask, cmap = 'Reds', alpha = 0.8)
+    slider.on_changed(update)
+
+    plt.show()
+
+
+global roi
+global mask 
 
 #
 # Raw image reading with Rawypy
@@ -44,54 +80,35 @@ global roi
 path = 'lights/'
 files = listdir(path)
 files.sort()
+filelist = [path + file for file in files]   
+
 
 print(files)
 
-frames = []
-shifts = []
-
-for name in files:
-    with rawpy.imread(path + name) as raw:
-        frames.append(raw.raw_image.copy())
-
-print('read end')
+refFrame = read(filelist[0])
 
 
-h = len(frames[0])
-w = len(frames[0][0])
+
+h = len(refFrame)
+w = len(refFrame[0])
 print(h,w)
 
 #
 # Draw ROI interactively on the overlap between the first and the last frame
 #
 
-selection = frames[0] + frames[-1] 
-fig, ax = plt.subplots()
-ax.imshow(selection, cmap = 'gray') 
+getROI(filelist)
 
-toggle_selector = RectangleSelector(ax, on_select,
-                                        useblit=True,
-                                        button=[1],  # Only left click allowed
-                                        minspanx=5, minspany=5,
-                                        spancoords='pixels',
-                                        interactive=True)
+print(roi)
 
-plt.show()
+ref = refFrame[roi[0]:roi[2], roi[1]:roi[3]]
 
-ref = frames[0][roi[0]:roi[2], roi[1]:roi[3]]
-global mask
 
 #
 # With the ROI selected, threshold the ref frame to get the comet core
 #
 
-fig, ax = plt.subplots()
-ax.imshow(ref, cmap = 'gray')
-slider_ax = fig.add_axes([0.20, 0, 0.60, 0.03])
-slider = RangeSlider(slider_ax, 'Threshold', ref.min(), ref.max())
-slider.on_changed(update)
-
-plt.show()
+getMask(ref)
 
 ref = ref * mask
 
@@ -99,22 +116,26 @@ ref = ref * mask
 # Convolution of the ref frame with each frame to find maximum overlap
 #
 
-for i in range(len(frames)):
-    temp = frames[i][roi[0]:roi[2], roi[1]:roi[3]] 
-    conv = convolve2d_cust(ref, temp)
+for i in range(len(filelist)):
+    print(f"Proccessing file {files[i]}")
+
+    print(f"Reading {files[i]}...")
+    currentFrame = read(filelist[i])
+    currentROI = currentFrame[roi[0]:roi[2], roi[1]:roi[3]]
+
+    print(f'Aligning {files[i]}...')
+    conv = convolve2d_cust(ref, currentROI)
 
     convolutionMax = np.argmax(conv)
     row, col = np.unravel_index(convolutionMax, conv.shape)
 
-    shifts.append([row, col])
+    if i == 0:
+        shiftsRef = (row, col)
 
-print(shifts)
+    row = row - shiftsRef[0]
+    col = col - shiftsRef[1]
 
-for i in range(1, len(shifts)):
-    row = shifts[i][0] - shifts[0][0]
-    col = shifts[i][1] - shifts[0][1]
-
-    print(row, col)
+    print(f"Alignment parameter for {files[i]} are Y:{row}, X:{col}")
 
     if row >= 0:
         top = row
@@ -134,19 +155,17 @@ for i in range(1, len(shifts)):
         right = w + col
         padHorizontal = (-col, 0)
 
-    temp = frames[i][top:bottom, left:right]
+    temp = currentFrame[top:bottom, left:right]
     #print(temp.shape)
     temp = np.pad(temp, (padVertical, padHorizontal), mode='constant', constant_values=0)
-    frames[i] = temp
+    
+    if i == 0:
+        stacked = temp.astype(float)
+    else:
+        stacked += (temp - stacked) / (float(i) + 1.)
 
     #print(temp.shape)
-
-stacked = frames[0].astype(float)
-
-for i in range(1, len(frames)):
-    stacked += (frames[i] - stacked) / (float(i) + 1.)
 
 
 plt.imshow(stacked, cmap = 'gray')
 plt.show()
-
