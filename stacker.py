@@ -5,6 +5,17 @@ from matplotlib.widgets import RangeSlider
 import numpy as np
 from os import listdir
 
+def getAverage(fileList): # Calculate averaged image from the list
+    for i in range(len(fileList)):
+        print(f'Averaging {fileList[i]}...')
+        currentFrame = read(fileList[i]).astype(float)
+        if i == 0:
+            averageFrame = currentFrame
+        else:
+            averageFrame += (currentFrame - averageFrame) / (float(i) + 1)
+    
+    return averageFrame
+
 def on_select(eclick, erelease): # Callback function for ROI selection
     global roi
 
@@ -74,13 +85,49 @@ global roi
 global mask 
 
 #
-# Raw image reading with Rawypy
+# Read and get averaged dark noise image
 #
 
-path = 'lights/'
-files = listdir(path)
+print('Calculating dark frame...')
+darkPath = 'darks/'
+darkfiles = listdir(darkPath)
+darkList = [darkPath + file for file in darkfiles]
+averageDark = getAverage(darkList)
+
+del darkPath, darkfiles, darkList
+
+#
+# Read and get averaged bias image
+#
+
+print('Calculating bias frame...')
+biasPath = 'biases/'
+biasfiles = listdir(biasPath)
+biasList = [biasPath + file for file in biasfiles]
+averageBias = getAverage(biasList)
+
+del biasPath, biasfiles, biasList
+
+#
+# Read and get averaged flat field image
+#
+
+print('Calculating flat field...')
+flatPath = 'flats/'
+flatfiles = listdir(flatPath)
+flatList = [flatPath + file for file in flatfiles]
+averageFlat = getAverage(flatList)
+
+del flatfiles, flatPath, flatList
+
+#
+# Dir of light field images. Read first image as reference
+#
+
+lightPath = 'lights/'
+files = listdir(lightPath)
 files.sort()
-filelist = [path + file for file in files]   
+filelist = [lightPath + file for file in files]   
 
 
 print(files)
