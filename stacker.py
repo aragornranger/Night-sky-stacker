@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from matplotlib.widgets import RectangleSelector
 from matplotlib.widgets import RangeSlider
 import numpy as np
+import tifffile
 from os import listdir
 
 def getAverage(fileList): # Calculate averaged image from the list
@@ -84,47 +85,69 @@ def getMask(ref):
 global roi
 global mask 
 
+folder = 'D:\\image_stacker_test_data\\' 
+# Change to empty if you want to place the images in the same directory as the script
+print(folder)
+filesInFolder = listdir(folder)
+
 #
 # Read and get averaged dark noise image
 #
 
-print('Calculating dark frame...')
-darkPath = 'darks/'
-darkfiles = listdir(darkPath)
-darkList = [darkPath + file for file in darkfiles]
-averageDark = getAverage(darkList)
+if 'masterdark.tif' in filesInFolder:
+    print('Master dark found, read from file')
+    masterDark = tifffile.imread(folder + 'masterdark.tif')
+else:
+    print('Calculating dark frame...')
+    darkPath = folder + 'darks\\'
+    darkfiles = listdir(darkPath)
+    darkList = [darkPath + file for file in darkfiles]
+    masterDark = getAverage(darkList)
+    tifffile.imwrite(folder + 'masterdark.tif', masterDark.astype('uint16'))
+    del darkPath, darkfiles, darkList
 
-del darkPath, darkfiles, darkList
+
 
 #
 # Read and get averaged bias image
 #
 
-print('Calculating bias frame...')
-biasPath = 'biases/'
-biasfiles = listdir(biasPath)
-biasList = [biasPath + file for file in biasfiles]
-averageBias = getAverage(biasList)
-
-del biasPath, biasfiles, biasList
+if 'masterbias.tif' in filesInFolder:
+    print('Master bias found, read from file')
+    masterBias = tifffile.imread(folder + 'masterbias.tif')
+else:
+    print('Calculating bias frame...')
+    biasPath = folder + 'biases\\'
+    biasfiles = listdir(biasPath)
+    biasList = [biasPath + file for file in biasfiles]
+    masterBias = getAverage(biasList)
+    tifffile.imwrite(folder + 'masterbias.tif', masterBias)
+    del biasPath, biasfiles, biasList
 
 #
 # Read and get averaged flat field image
 #
 
-print('Calculating flat field...')
-flatPath = 'flats/'
-flatfiles = listdir(flatPath)
-flatList = [flatPath + file for file in flatfiles]
-averageFlat = getAverage(flatList)
+if 'masterflat.tif' in filesInFolder:
+    print('Master flat found, read from file')
+    masterFlat = tifffile.imread(folder + 'masterflat.tif')
+else:
+    print('Calculating flat field...')
+    flatPath = folder + 'flats\\'
+    flatfiles = listdir(flatPath)
+    flatList = [flatPath + file for file in flatfiles]
+    masterFlat = getAverage(flatList)
+    tifffile.imwrite(folder + 'masterflat.tif', masterFlat)
+    del flatfiles, flatPath, flatList
 
-del flatfiles, flatPath, flatList
+flat = masterFlat - masterBias
+flat = flat / np.max(flat)
 
 #
 # Dir of light field images. Read first image as reference
 #
 
-lightPath = 'lights/'
+lightPath = folder + 'lights\\'
 files = listdir(lightPath)
 files.sort()
 filelist = [lightPath + file for file in files]   
@@ -202,7 +225,9 @@ for i in range(len(filelist)):
         right = w + col
         padHorizontal = (-col, 0)
 
-    temp = currentFrame[top:bottom, left:right]
+    correctedFrame = currentFrame - masterDark
+    correctedFrame = np.divide(correctedFrame, flat)
+    temp = correctedFrame[top:bottom, left:right]
     #print(temp.shape)
     temp = np.pad(temp, (padVertical, padHorizontal), mode='constant', constant_values=0)
     
@@ -213,6 +238,6 @@ for i in range(len(filelist)):
 
     #print(temp.shape)
 
-
+tifffile.imwrite(folder + "stacked.tif", stacked.astype('uint16'))
 plt.imshow(stacked, cmap = 'gray')
 plt.show()
