@@ -239,5 +239,5 @@ for i in range(len(filelist)):
     #print(temp.shape)
 
 tifffile.imwrite(folder + "stacked.tif", stacked.astype('uint16'))
-plt.imshow(stacked, cmap = 'gray')
+plt.imshow(stacked, cmap = 'gray', vmin = 0, vmax = np.max(stacked))
 plt.show()
